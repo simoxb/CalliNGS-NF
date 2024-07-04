@@ -245,14 +245,14 @@ process RNASEQ_CALL_VARIANTS {
   gatk HaplotypeCaller \
           --native-pair-hmm-threads ${task.cpus} \
           --reference ${genome} \
-          --output output.gatk.vcf.gz \
+          --output output.gatk.vcf \
           ${bam_params} \
           --standard-min-confidence-threshold-for-calling 20.0 \
           --dont-use-soft-clipped-bases 
 
   # Variant filtering
   gatk VariantFiltration \
-          -R ${genome} -V output.gatk.vcf.gz \
+          -R ${genome} -V output.gatk.vcf \
           --cluster-window-size 35 --cluster-size 3 \
           --filter-name FS --filter-expression \"FS > 30.0\" \
           --filter-name QD --filter-expression \"QD < 2.0\" \
@@ -270,7 +270,7 @@ process POST_PROCESS_VCF {
 
   input:
     tuple val(sampleId), path('final.vcf')
-    tuple path('filtered.recode.vcf.gz'), path('filtered.recode.vcf.gz.tbi')
+    tuple path(recoded_vcf), path(recoded_vcf_index)
   output: 
     tuple val(sampleId), path('final.vcf'), path('commonSNPs.diff.sites_in_files')
   
@@ -278,7 +278,7 @@ process POST_PROCESS_VCF {
   '''
   grep -v '#' final.vcf | awk '$7~/PASS/' |perl -ne 'chomp($_); ($dp)=$_=~/DP\\=(\\d+)\\;/; if($dp>=8){print $_."\\n"};' > result.DP8.vcf
   
-  vcftools --vcf result.DP8.vcf --gzdiff filtered.recode.vcf.gz  --diff-site --out commonSNPs
+  vcftools --vcf result.DP8.vcf --diff !{recoded_vcf}  --diff-site --out commonSNPs
   '''
 }
 
@@ -291,16 +291,16 @@ process PREPARE_VCF_FOR_ASE {
   publishDir "$params.results/$sampleId" 
 
   input: 
-    tuple val(sampleId), path('final.vcf'), path('commonSNPs.diff.sites_in_files')
+    tuple val(sampleId), path(final_variant), path(commonSNPs)
   output: 
-    tuple val(sampleId), path('known_snps.vcf.gz'), path('known_snps.vcf.gz.tbi')
+    tuple val(sampleId), path('known_snps.vcf'), path('known_snps.vcf.tbi')
     path 'AF.histogram.pdf'
 
   script:
   '''
-  awk 'BEGIN{OFS="\t"} $4~/B/{print $1,$2,$3}' commonSNPs.diff.sites_in_files  > test.bed
+  awk 'BEGIN{OFS="\t"} $4~/B/{print $1,$2,$3}' !{commonSNPs}  > test.bed
     
-  vcftools --vcf final.vcf --bed test.bed --recode --keep-INFO-all --stdout > known_snps.vcf
+  vcftools --vcf !{final_variant} --bed test.bed --recode --keep-INFO-all --stdout > known_snps.vcf
 
   grep -v '#'  known_snps.vcf | awk -F '\\t' '{print $10}' \
                |awk -F ':' '{print $2}'|perl -ne 'chomp($_); \
@@ -309,9 +309,7 @@ process PREPARE_VCF_FOR_ASE {
                >AF.4R
 
   gghist.R -i AF.4R -o AF.histogram.pdf
-  # Known SNPs have to be zipped and indexed for being used
-  bgzip -c known_snps.vcf  > known_snps.vcf.gz
-  tabix -p vcf known_snps.vcf.gz
+  tabix -p vcf known_snps.vcf
   '''
 }
 
