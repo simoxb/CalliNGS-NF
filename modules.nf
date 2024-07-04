@@ -76,17 +76,15 @@ process PREPARE_VCF_FILE {
 
   output:
     tuple \
-      path("${variantsFile.baseName}.filtered.recode.vcf.gz"), \
-      path("${variantsFile.baseName}.filtered.recode.vcf.gz.tbi")
+      path("${variantsFile.baseName}.recode.vcf"), \
+      path("${variantsFile.baseName}.recode.vcf.tbi")
   
   script:  
   """
-  vcftools --gzvcf $variantsFile -c \
+  vcftools --vcf $variantsFile \
            --exclude-bed ${denylisted} \
-           --recode | bgzip -c \
-           > ${variantsFile.baseName}.filtered.recode.vcf.gz
-
-  tabix ${variantsFile.baseName}.filtered.recode.vcf.gz
+           --recode -- out ${variantsFile.basename}
+  tabix ${variantsFile.baseName}.recode.vcf
   """
 }
 
